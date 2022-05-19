@@ -1,0 +1,65 @@
+画面が暗くなりマシンが止まると、Sleep で一時間も余計に寝てしまう。
+実時間が予測+10秒より後へ行った時止まるようにコーディングしたのだが止まらない。
+t1.After(t2) のような関数はこの時正しくない。t1.Unix() > t2.Unix() としたら正常動作した。
+
+
+now's the time 13:11:38 [1652587898]
+estimate+10sec 13:11:47 [1652587907]　<==9秒先
+false false true false false true
+.
+now's the time 13:25:24 [1652588724]　<==14分先
+estimate+10sec 13:11:52 [1652587912]
+false false true false false true　　<===true false false true false false となるはずなのだが。。。
+oversleep 13:25:24
+--------
+-since_id=0
+-max_id=0
+
+
+
+func sleep(second int) {
+	fmt.Fprintf(os.Stderr, "%s Sleep: %d", time.Now().Format("15:04:05"), second)
+	start := time.Now()
+	
+	for t:=0 ;second > 0; {
+		slp := second
+		if slp > sleepdot {
+			slp = sleepdot
+		}
+		
+		time.Sleep(time.Duration(slp) * time.Second)
+		second -= slp
+		t += slp
+		// if t >= 10 {
+		//  	time.Sleep(time.Duration(11) * time.Second) oversleep test
+		// }
+		fmt.Fprintf(os.Stderr, ".")
+
+		now := time.Now()
+		t2 := start.Add(time.Duration(t + 10) * time.Second)
+		fmt.Printf("\nnow's the time %s [%d]\n", now.Format("15:04:05"), now.Unix())
+		fmt.Printf("estimate+10sec %s [%d]\n", t2.Format("15:04:05"), t2.Unix())
+		fmt.Println(now.After(t2), now.Equal(t2), now.Before(t2),
+			t2.Before(now), t2.Equal(now), t2.After(now))
+		//if now.After(t2) {
+		if now.Unix() > t2.Unix() {
+			fmt.Fprintf(os.Stderr, "oversleep %s\n", now.Format("15:04:05"))
+			print_id()
+			os.Exit(1)
+		}
+	}
+}
+
+func main(){
+	tLtypePtr := flag.String("get", "user", "TLtype: user, home, mention, rtofme")
+	countPtr := flag.Int("count", 0, "tweet count. max=3191?")
+	max_idPtr := flag.Int64("max_id", 0, "starting tweet id")
+	since_idPtr := flag.Int64("since_id", 0, "reverse start tweet id")
+	screennamePtr := flag.String("user", "", "twitter @ screenname")
+	idPtr  := flag.String("id", "", "integer user Id")
+	reversePtr := flag.Bool("reverse", false, "reverse output. wait newest TL")
+	revloopsPtr := flag.Int("revloops", 0, "reverse loop max")
+	flag.Parse()
+
+	sleep(3600)
+	os.Exit(0)
