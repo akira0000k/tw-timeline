@@ -1,0 +1,116 @@
+Akira@MBP-2 ~/go/src/github.com/akira0000k/tw-timeline % ./testcomp.sh
++ date
+2022年 5月22日 日曜日 20時51分02秒 JST
+++ date +%Y%m%d-%H%M%S
++ stdate=20220522-205102
++ mkdir -p 20220522-205102
+++ date +%Y%m%d
++ stday=20220522
++ filename=20220522-205102/20220522-home-f.tl
++ errname=20220522-205102/err-f.log
++ :
++ :
++ maxid=
++ :
++ ./getl -get=home -loops=1 -count=200
++ ret=0
+++ tail -1 20220522-205102/err-f.log
++ nextmax=-max_id=1528335657646452742
++ echo -max_id=1528335657646452742
+-max_id=1528335657646452742
++ [[ -max_id=1528335657646452742 != \-\m\a\x\_\i\d* ]]
++ '[' -max_id=1528335657646452742 == -max_id=0 ']'
++ case "$ret" in
++ sleep 5
++ maxid=-max_id=1528335657646452742
++ :
++ ./getl -get=home -loops=1 -count=200 -max_id=1528335657646452742
++ ret=0
+++ tail -1 20220522-205102/err-f.log
++ nextmax=-max_id=1528327876205891584
++ echo -max_id=1528327876205891584
+-max_id=1528327876205891584
++ [[ -max_id=1528327876205891584 != \-\m\a\x\_\i\d* ]]
++ '[' -max_id=1528327876205891584 == -max_id=0 ']'
++ case "$ret" in
++ sleep 5
++ maxid=-max_id=1528327876205891584
++ :
++ ./getl -get=home -loops=1 -count=200 -max_id=1528327876205891584
++ ret=0
+++ tail -1 20220522-205102/err-f.log
++ nextmax=-max_id=1528318789603192835
++ echo -max_id=1528318789603192835
+-max_id=1528318789603192835
++ [[ -max_id=1528318789603192835 != \-\m\a\x\_\i\d* ]]
++ '[' -max_id=1528318789603192835 == -max_id=0 ']'
++ case "$ret" in
++ sleep 5
++ maxid=-max_id=1528318789603192835
++ :
++ ./getl -get=home -loops=1 -count=200 -max_id=1528318789603192835
++ ret=0
+++ tail -1 20220522-205102/err-f.log
++ nextmax=-max_id=1528312574248292352
++ echo -max_id=1528312574248292352
+-max_id=1528312574248292352
++ [[ -max_id=1528312574248292352 != \-\m\a\x\_\i\d* ]]
++ '[' -max_id=1528312574248292352 == -max_id=0 ']'
++ case "$ret" in
++ sleep 5
++ maxid=-max_id=1528312574248292352
++ :
++ ./getl -get=home -loops=1 -count=200 -max_id=1528312574248292352
++ ret=0
+++ tail -1 20220522-205102/err-f.log
++ nextmax=-max_id=1528312404840697856
++ echo -max_id=1528312404840697856
+-max_id=1528312404840697856
++ [[ -max_id=1528312404840697856 != \-\m\a\x\_\i\d* ]]
++ '[' -max_id=1528312404840697856 == -max_id=0 ']'
++ case "$ret" in
++ sleep 5
++ maxid=-max_id=1528312404840697856
++ :
++ ./getl -get=home -loops=1 -count=200 -max_id=1528312404840697856
++ ret=1
+++ tail -1 20220522-205102/err-f.log
++ nextmax=-max_id=0
++ echo -max_id=0
+-max_id=0
++ [[ -max_id=0 != \-\m\a\x\_\i\d* ]]
++ '[' -max_id=0 == -max_id=0 ']'
++ break
+Akira@MBP-2 ~/go/src/github.com/akira0000k/tw-timeline % ./testcompr-loop.sh
+++ date +%Y%m%d-%H%M%S
++ stdate=20220522-210931
++ mkdir -p 20220522-210931
+++ date +%Y%m%d
++ stday=20220522
++ filename=20220522-210931/20220522-home-r.tl
++ errname=20220522-210931/err-r.log
++ :
++ :
++ date
+2022年 5月22日 日曜日 21時09分31秒 JST
++ zeromax=2
++ zerocount=0
++ sinceid=
++ :
++ ./getl -get=home -reverse -loops=5 -wait=180
++ ret=0
+++ tail -2 20220522-210931/err-r.log
+++ head -1
++ nextsince=-since_id=1528349587546591232
++ echo -since_id=1528349587546591232
+-since_id=1528349587546591232
++ [[ -since_id=1528349587546591232 != \-\s\i\n\c\e\_\i\d* ]]
++ case "$ret" in
++ sleep 5
++ '[' -since_id=1528349587546591232 == -since_id=0 ']'
++ zerocount=0
++ sinceid=-since_id=1528349587546591232
++ :
++ ./getl -get=home -reverse -loops=5 -wait=180 -since_id=1528349587546591232
+  C-c C-c^C
+Akira@MBP-2 ~/go/src/github.com/akira0000k/tw-timeline % 

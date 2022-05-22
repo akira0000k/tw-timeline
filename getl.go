@@ -118,6 +118,10 @@ func main(){
 		}
 	case "mention":
 		t = tlmention
+		if *idPtr != "" || *screennamePtr != "" {
+			fmt.Fprintln(os.Stderr, "mention TL to Auth user only.")
+			os.Exit(2)
+		}
 	case "rtofme":
 		t = tlrtofme
 		if *idPtr != "" || *screennamePtr != "" {
@@ -131,7 +135,7 @@ func main(){
 
 	if *idPtr != "" {
 		uv.Set("id", *idPtr)
-		fmt.Fprintf(os.Stderr, "user id=%d\n", *idPtr)
+		fmt.Fprintf(os.Stderr, "user id=%s\n", *idPtr)
 		if (*screennamePtr != "") {
 			fmt.Fprintln(os.Stderr, "screen name ignored.")
 		}

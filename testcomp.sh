@@ -13,14 +13,14 @@ errname=$stdate/err-f.log
 
 maxid=
 while :; do
-    ./getl -get=home -loops=1 $maxid 2>>$errname >>$filename
+    ./getl -get=home -loops=1 -count=200 $maxid 2>>$errname >>$filename
     ret=$?
     nextmax=$(tail -1 $errname)
     echo $nextmax
     if [[ "$nextmax" != '-max_id'* ]]; then
 	break
     fi
-    if [ "$nextmax" != '-max_id=0' ]; then
+    if [ "$nextmax" == '-max_id=0' ]; then
 	break
     fi
     
@@ -29,4 +29,5 @@ while :; do
 	1)  sleep 30;;
 	*) break;;
     esac
+    maxid=$nextmax
 done
