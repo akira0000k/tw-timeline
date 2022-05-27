@@ -29,10 +29,12 @@ const sleepdot = 5
 // TL type "enum"
 type tltype int
 const (
-	tluser tltype = iota
+	tlnone tltype = iota
+	tluser
 	tlhome
 	tlmention
 	tlrtofme
+	tllist
 )
 
 type revtype bool
@@ -80,73 +82,140 @@ func getTL(t tltype, uv url.Values) (tweets []anaconda.Tweet, err error) {
 		tweets, err = api.GetMentionsTimeline(uv)
 	case tlrtofme:
 		tweets, err = api.GetRetweetsOfMe(uv)
+	case tllist:
+		listid64, _ := strconv.ParseInt(uv.Get("list_id"), 10, 64)
+		includeRT, _ := strconv.ParseBool(uv.Get("include_rts"))
+		tweets, err = api.GetListTweets(listid64, includeRT, uv)
 	}
+	
 	fmt.Fprintf(os.Stderr, "%s get len: %d\n", time.Now().Format("15:04:05"), len(tweets))
 	return tweets, err
 }
 
+// func (a TwitterApi) GetListTweets(listID int64, includeRTs bool, v url.Values) (tweets []Tweet, err error) {
+//  	v = cleanValues(v)
+//  	v.Set("list_id", strconv.FormatInt(listID, 10))
+//  	v.Set("include_rts", strconv.FormatBool(includeRTs))
+//  
+//  	response_ch := make(chan response)
+//  	a.queryQueue <- query{a.baseUrl + "/lists/statuses.json", v, &tweets, _GET, response_ch}
+//  	return tweets, (<-response_ch).err
+// }
+
 var api *anaconda.TwitterApi
 func main(){
-	tLtypePtr := flag.String("get", "user", "TLtype: user, home, mention, rtofme")
+	var err error
+	var listname, screenname string
+	var listID, userid int64
+	flag.StringVar(&listname, "listname", "", "list name")
+	flag.Int64Var(&listID, "listid", 0, "list ID")
+	nortPtr := flag.Bool("nort", false, "not include retweets")
+
+	tLtypePtr := flag.String("get", "", "TLtype: user, home, mention, rtofme, list")
 	countPtr := flag.Int("count", 0, "tweet count. max=3191?")
 	max_idPtr := flag.Int64("max_id", 0, "starting tweet id")
 	since_idPtr := flag.Int64("since_id", 0, "reverse start tweet id")
-	screennamePtr := flag.String("user", "", "twitter @ screenname")
-	idPtr  := flag.String("id", "", "integer user Id")
+
+	flag.StringVar(&screenname, "user", "", "twitter @ screenname")
+	flag.Int64Var(&userid, "userid", 0, "integer user Id")
+
 	reversePtr := flag.Bool("reverse", false, "reverse output. wait newest TL")
 	loopsPtr := flag.Int("loops", 0, "API get loop max")
 	waitPtr := flag.Int64("wait", 0, "wait second for next loop")
 	flag.Parse()
+	includeRTs := ! *nortPtr
 
 	if flag.NArg() > 0 {
 		fmt.Fprintf(os.Stderr, "positional argument no need [%s]\n", flag.Arg(0))
 		os.Exit(2)
 	}
-	
-	api = connectTwitterApi()
-	var uv=url.Values{}
 
 	var t tltype
 	switch *tLtypePtr {
-	case "user":
-		t = tluser
-	case "home":
-		t = tlhome
-		if *idPtr != "" || *screennamePtr != "" {
-			fmt.Fprintln(os.Stderr, "home TL for Auth user only.")
-			os.Exit(2)
-		}
-	case "mention":
-		t = tlmention
-		if *idPtr != "" || *screennamePtr != "" {
-			fmt.Fprintln(os.Stderr, "mention TL to Auth user only.")
-			os.Exit(2)
-		}
-	case "rtofme":
-		t = tlrtofme
-		if *idPtr != "" || *screennamePtr != "" {
-			fmt.Fprintln(os.Stderr, "RTofme TL for Auth user only.")
-			os.Exit(2)
+	case "user":    t = tluser
+	case "home":    t = tlhome
+	case "mention": t = tlmention
+	case "rtofme":  t = tlrtofme
+	case "list":    t = tllist
+	case "":
+		if listID > 0 || listname != "" {
+			t = tllist
+			fmt.Fprintln(os.Stderr, "assume -get=list")
+		} else if userid > 0 || screenname != "" {
+			t = tluser
+			fmt.Fprintln(os.Stderr, "assume -get=user")
+		} else {
+			t = tlhome
 		}
 	default:
 		fmt.Fprintf(os.Stderr, "invalid type -get=%s\n", *tLtypePtr)
 		os.Exit(2)
 	}
+	fmt.Fprintf(os.Stderr, "-get=%v\n", t)
+	
+	api = connectTwitterApi()
+	var uv=url.Values{}
 
-	if *idPtr != "" {
-		uv.Set("id", *idPtr)
-		fmt.Fprintf(os.Stderr, "user id=%s\n", *idPtr)
-		if (*screennamePtr != "") {
-			fmt.Fprintln(os.Stderr, "screen name ignored.")
+	if userid == 0 && screenname == "" {
+		switch t {
+		case tluser:
+			fmt.Fprintln(os.Stderr, "Auth user's TL")
+		case tlhome:
+			fmt.Fprintln(os.Stderr, "Auth user's Home TL")
+		case tllist:
+			fmt.Fprintln(os.Stderr, "ListTL needs -user=username or -userid=99999999")
+			os.Exit(2)
 		}
-	} else if *screennamePtr != "" {
-		uv.Set("screen_name", *screennamePtr)
-	} else {
-		fmt.Fprintln(os.Stderr, "Auth user's TL")
+	} else {	
+		switch t {
+		case tlhome: fallthrough
+		case tlmention: fallthrough
+		case tlrtofme:
+			fmt.Fprintf(os.Stderr, "%s TL for Auth user only.\n", *tLtypePtr)
+			os.Exit(2)
+		}
 	}
 
-	//uv.Set("trim_user", "true")  //userは id, id_str しか含まない。screen_name:""
-	//uv.Set("include_rts", "false")  //リツイートは含まない。件数は減る。
+	if userid != 0 {
+		uv.Set("id", strconv.FormatInt(userid, 10))
+		fmt.Fprintf(os.Stderr, "user id=%d\n", userid)
+		if (screenname != "") {
+			fmt.Fprintln(os.Stderr, "screen name ignored.")
+		}
+	} else if screenname != "" {
+		switch t {
+		case tllist:
+			userid, err = name2id(screenname)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err.Error())
+				os.Exit(2)
+			}
+			uv.Set("id", strconv.FormatInt(userid, 10))
+		default:
+			uv.Set("screen_name", screenname)
+		}
+	}
+
+
+	switch t {
+	case tllist:
+		if listID > 0 && listname != "" {
+			fmt.Fprintln(os.Stderr, "list name ignored.")
+			listname = ""
+		}
+		listID = listIDCheck(userid, listID, listname)
+		if listID == 0 {
+			os.Exit(2)
+		}
+		uv.Set("list_id", strconv.FormatInt(listID, 10))
+	default:
+		if listID != 0 || listname != "" {
+			fmt.Fprintln(os.Stderr, "no need list ID, List name.")
+			os.Exit(2)
+		}
+	}
+	
+	uv.Set("include_rts", strconv.FormatBool(includeRTs))  //リツイートは含まない。件数は減る。
 
 	for key, val := range uv {
 		fmt.Fprintln(os.Stderr, key, ":", val)
@@ -184,6 +253,49 @@ func main(){
 	}
 	print_id()
 	os.Exit(exitcode)
+}
+
+func listIDCheck(userID int64, listid int64, listname string) (returnID int64) {
+	var uv=url.Values{}
+	uv.Set("count", "100")
+	lists, err := api.GetListsOwnedBy(userID, uv)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(2)
+	}
+	if len(lists) <= 0 {
+		fmt.Fprintln(os.Stderr, "no list in this user.")
+		return 0
+	}
+	matchcount := 0
+	for _, list := range lists {
+		if listid > 0 {
+			if list.Id == listid {
+				return list.Id
+			}
+		} else if listname != "" {
+			if strings.HasPrefix(list.Name, listname) {
+				returnID = list.Id
+				fmt.Fprintln(os.Stderr, "listId: ", list.Id, " Name: ", list.Name)
+				matchcount += 1
+			}
+		}
+	}
+	if matchcount == 1 {
+		return returnID
+	} else if matchcount > 1 {
+		fmt.Fprintln(os.Stderr, "choose list id.")
+	} else {
+		if listid == 0 && listname == "" {
+			fmt.Fprintln(os.Stderr, "need -listid or -listname.")
+		} else {
+			fmt.Fprintln(os.Stderr, "list id or list name unmatch.")
+		}
+		for _, list := range lists {
+			fmt.Fprintln(os.Stderr, "listId: ", list.Id, " Name: ", list.Name)
+		}
+	}
+	return 0
 }
 
 func getFowardTLs(t tltype, uv url.Values, count int, loops int, wait int64, max int64, since int64) {
@@ -420,6 +532,23 @@ func printTweet(id int64, tweet anaconda.Tweet, twtype string) {
 	fmt.Printf("%d\t@%s\t%s\t\"%s\"\n", id, screen, twtype, fulltext)
 }
 
+func name2id(screen_name string) (id int64, err error) {
+	var uv=url.Values{}
+	uv.Set("skip_status", "true") //データ減少
+	users, err := api.GetUsersLookup(screen_name, uv)
+	if err != nil {
+		return 0, err
+	}
+	//jsonUser, _ := json.Marshal(users[0])
+	//fmt.Println(string(jsonUser))
+	//os.Exit(9)
+	
+	var userinfo anaconda.User = users[0]
+
+	id = userinfo.Id
+	return id, nil
+}
+
 func connectTwitterApi() *anaconda.TwitterApi {
 	usr, _ := user.Current()
 	raw, error := ioutil.ReadFile(usr.HomeDir + "/twitter/twitterAccount.json")
@@ -535,54 +664,3 @@ type TwitterAccount struct {
 // 	WithheldInCountries            []string `json:"withheld_in_countries"`
 // 	WithheldScope                  string   `json:"withheld_scope"`
 //}
-
-// func getTLcount(t tltype, uv url.Values, count int) (tweets []anaconda.Tweet) {
-//  	tweets = []anaconda.Tweet{}
-//  	var tws []anaconda.Tweet
-//  	var err error
-//  	for i := 0; ; i++ {
-//  		c := count
-//  		if c > onetime {
-//  			c = onetime
-//  		}
-//  		uv.Set("count", strconv.Itoa(c))
-//  
-//  		tws, err = getTL(t, uv)
-//  		if err != nil {
-//  			fmt.Fprintln(os.Stderr, err.Error())
-//  			print_id()
-//  			os.Exit(2)
-//  		}
-//  		c = len(tws)
-//  		if c == 0 { break }
-//  
-//  		tweets = append(tweets, tws...)
-//  
-//  		count -= c
-//  		if count <= 0 { break }
-//  
-//  		lastid := tws[c - 1].Id
-//  		uv.Set("max_id", strconv.FormatInt(lastid - 1, 10))
-//  
-//  		sleep(10) //??
-//  	}
-//  	return tweets
-// }
-
-// func name2id(screen_name string) (id int64) {
-//  	var uv=url.Values{}
-//  	uv.Set("skip_status", "true") //データ減少
-//  	users, err := api.GetUsersLookup(screen_name, uv)
-//  	if err != nil {
-//  		fmt.Fprintln(os.Stderr, err.Error())
-//  		os.Exit(2)
-//  	}
-//  	//jsonUser, _ := json.Marshal(users[0])
-//  	//fmt.Println(string(jsonUser))
-//  	//os.Exit(9)
-//  	
-//  	var userinfo anaconda.User = users[0]
-//  
-//  	id = userinfo.Id
-//  	return id
-// }
