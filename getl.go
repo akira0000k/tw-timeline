@@ -23,7 +23,8 @@ func print_id() {
 	fmt.Fprintf(os.Stderr,   "-max_id=%d\n", next_max)
 }
 
-const onetime = 200
+const onetimedefault = 20
+const onetimemax = 200
 const sleepdot = 5
 
 // TL type "enum"
@@ -113,6 +114,7 @@ func main(){
 
 	tLtypePtr := flag.String("get", "", "TLtype: user, home, mention, rtofme, list")
 	countPtr := flag.Int("count", 0, "tweet count. max=3191?")
+	eachPtr := flag.Int("each", 0, "req count for each loop max=200")
 	max_idPtr := flag.Int64("max_id", 0, "starting tweet id")
 	since_idPtr := flag.Int64("since_id", 0, "reverse start tweet id")
 
@@ -124,6 +126,7 @@ func main(){
 	waitPtr := flag.Int64("wait", 0, "wait second for next loop")
 	flag.Parse()
 	includeRTs := ! *nortPtr
+	eachcount := *eachPtr
 
 	if flag.NArg() > 0 {
 		fmt.Fprintf(os.Stderr, "positional argument no need [%s]\n", flag.Arg(0))
@@ -221,6 +224,7 @@ func main(){
 		fmt.Fprintln(os.Stderr, key, ":", val)
 	}
 	fmt.Fprintf(os.Stderr, "count=%d\n", *countPtr)
+	fmt.Fprintf(os.Stderr, "each=%d\n", eachcount)
 	fmt.Fprintf(os.Stderr, "loops=%d\n", *loopsPtr)
 	fmt.Fprintf(os.Stderr, "max_id=%d\n", *max_idPtr)
 	fmt.Fprintf(os.Stderr, "since_id=%d\n", *since_idPtr)
@@ -249,7 +253,7 @@ func main(){
 			waitsecond = 10
 			fmt.Fprintf(os.Stderr, "wait default=%d (forward)\n", waitsecond)
 		}
-		getFowardTLs(t, uv, count, *loopsPtr, waitsecond, *max_idPtr, *since_idPtr)
+		getFowardTLs(t, uv, count, eachcount, *loopsPtr, waitsecond, *max_idPtr, *since_idPtr)
 	}
 	print_id()
 	os.Exit(exitcode)
@@ -298,13 +302,24 @@ func listIDCheck(userID int64, listid int64, listname string) (returnID int64) {
 	return 0
 }
 
-func getFowardTLs(t tltype, uv url.Values, count int, loops int, wait int64, max int64, since int64) {
+func getFowardTLs(t tltype, uv url.Values, count int, eachcount int, loops int, waitsecond int64, max int64, since int64) {
 	var tweets []anaconda.Tweet
 	var err error
 	var countlim bool = true
-	if count <=  0 {
+	if count <= 0 {
 		countlim = false
-		uv.Set("count", strconv.Itoa(onetime))
+	}
+	if eachcount > 0 {
+		uv.Set("count", strconv.Itoa(eachcount))
+	} else {
+		if count > onetimedefault {
+			eachcount = count * 2
+			if eachcount > onetimemax {
+				eachcount = onetimemax
+			}
+			fmt.Fprintf(os.Stderr, "-each=%d assumed\n", eachcount)
+			uv.Set("count", strconv.Itoa(eachcount))
+		}
 	}
 	if max > 0 {
 		uv.Set("max_id", strconv.FormatInt(max - 1, 10))
@@ -315,15 +330,8 @@ func getFowardTLs(t tltype, uv url.Values, count int, loops int, wait int64, max
 	if since > 0 {
 		uv.Set("since_id", strconv.FormatInt(since - 1, 10))
 	}
-	waitsecond := wait
 	for i := 1; ; i++ {
-		if countlim {
-			c := count
-			if c > onetime {
-				c = onetime
-			}
-			uv.Set("count", strconv.Itoa(c))
-		}
+
 		tweets, err = getTL(t, uv)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
@@ -339,7 +347,7 @@ func getFowardTLs(t tltype, uv url.Values, count int, loops int, wait int64, max
 			break
 		}
 
-		firstid, lastid := printTL(tweets, forward)
+		firstid, lastid := printTL(tweets, count, forward)
 		if next_since == 0 {
 			next_since = firstid
 		}
@@ -375,7 +383,6 @@ func getReverseTLs(t tltype, uv url.Values, count int, loops int, wait int64, si
 	var zerocount int = 0
 	const maxzero int = 1
 	next_since = sinceid //default: same sinceid
-
 	if sinceid <= 0 {
 		fmt.Fprintf(os.Stderr, "since=%d. get one tweet\n", sinceid)
 		uv.Set("count", "1")
@@ -391,7 +398,7 @@ func getReverseTLs(t tltype, uv url.Values, count int, loops int, wait int64, si
 			os.Exit(2)
 		}
 
-		_, lastid := printTL(tweets[0:1], reverse)
+		_, lastid := printTL(tweets[0:1], 0, reverse)
 		next_max = lastid
 		next_since = lastid
 		sinceid = lastid
@@ -415,7 +422,7 @@ func getReverseTLs(t tltype, uv url.Values, count int, loops int, wait int64, si
 				fmt.Fprintf(os.Stderr, "Gap exists\n")
 			}
 			if c > 0 {
-				firstid, lastid := printTL(tweets, reverse)
+				firstid, lastid := printTL(tweets, 0, reverse)
 				if next_max == 0 {
 					next_max = firstid
 				}
@@ -455,7 +462,7 @@ func getTLsince(t tltype, uv url.Values, since int64) (tweets []anaconda.Tweet, 
 	zeror = false
 	var tws []anaconda.Tweet
 	var err error
-	uv.Set("count", strconv.Itoa(onetime))
+	uv.Set("count", strconv.Itoa(onetimemax))
 	uv.Set("since_id", strconv.FormatInt(since - 1, 10))
 	for i := 0; ; i++ {
 
@@ -487,7 +494,7 @@ func getTLsince(t tltype, uv url.Values, since int64) (tweets []anaconda.Tweet, 
 	return tweets, zeror
 }
 
-func printTL(tweets []anaconda.Tweet, revs revtype) (firstid int64, lastid int64) {
+func printTL(tweets []anaconda.Tweet, count int, revs revtype) (firstid int64, lastid int64) {
 	firstid = 0
 	lastid = 0
 	imax := len(tweets)
@@ -497,7 +504,9 @@ func printTL(tweets []anaconda.Tweet, revs revtype) (firstid int64, lastid int64
 		is = imax - 1
 		ip = -1
 	}
+	seq := 0
 	for i := is; 0 <= i && i < imax; i += ip {
+		seq++
 		tweet := tweets[i]
 		id := tweet.Id
 		fmt.Fprintln(os.Stderr, "Id:", id)
@@ -521,6 +530,10 @@ func printTL(tweets []anaconda.Tweet, revs revtype) (firstid int64, lastid int64
 			printTweet(id, tweet, twtype)
 		}
 		lastid = id
+
+		if count > 0 && seq >= count {
+			break
+		}
 	}
 	return firstid, lastid
 }

@@ -28,6 +28,8 @@ Usage of ./getl:
 	not include retweets
 -count int
 	tweet count. max=800?
+-each int
+	req count for each loop max=200
 -loops int
 	API get loop max
 -wait int
@@ -60,7 +62,8 @@ Usage of ./getl:
     -since_id=1529278731545882624 -reverse
 
 ### その他パラメタ
-    -count=取得件数めやす　　(デフォルトは順5件, 逆は制限なし)
-    -loops=内部繰り返し数　　(一回ループに最大200件になっている)
+    -count=取得件数めやす　　(デフォルトは順5件, 逆は制限なし。全体件数の制御)
+    -each=一回の取得件数　 　(順のみ、デフォルト20件, 最大200件)
+    -loops=内部繰り返し数　　(-countで全体件数を制御するか、-eachと-loops で制御してもよい)
     -wait=秒             　(ループ間隔)  デフォルト 順10 逆60
-    -nort   　　　　　　　　(出力にRTを含めない)　　一回に取得できる件数が大幅に減るかもしれない
+    -nort   　　　　　　　　(出力にRTを含めない)　　一回に取得できる件数が大幅に減るかもしれないので -each=200 を指定するとよい。
