@@ -44,37 +44,16 @@ const (
 	forward revtype = false
 )
 
-func sleep(second int64) {
-	fmt.Fprintf(os.Stderr, "%s Sleep: %d", time.Now().Format("15:04:05"), second)
-	start := time.Now()
-	startunix := start.Unix()
-	lastunix := startunix + int64(second)
-	
-	for second > 0 {
-		slp := second
-		if slp > sleepdot {
-			slp = sleepdot
-		}
-		
-		time.Sleep(time.Duration(slp) * time.Second)
-		fmt.Fprintf(os.Stderr, ".")
-
-		now := time.Now()
-		nowunix := now.Unix()
-		second = lastunix - nowunix
-		if second < -10 {
-			fmt.Fprintf(os.Stderr, "oversleep %s\n", now.Format("15:04:05"))
-			print_id()
-			os.Exit(0)
-		}
-		if second <= 0 {
-			break
-		}
-	}
+type twSearchApi struct {
+	api *anaconda.TwitterApi
+	t  tltype
 }
 
-func getTL(t tltype, uv url.Values) (tweets []anaconda.Tweet, err error) {
-	switch t {
+var twapi twSearchApi
+
+func (ta *twSearchApi) getTL(uv url.Values) (tweets []anaconda.Tweet, err error) {
+	api := ta.api
+	switch ta.t {
 	case tluser:
 		tweets, err = api.GetUserTimeline(uv)
 	case tlhome:
@@ -103,38 +82,43 @@ func getTL(t tltype, uv url.Values) (tweets []anaconda.Tweet, err error) {
 //  	return tweets, (<-response_ch).err
 // }
 
-var api *anaconda.TwitterApi
 func main(){
 	var err error
-	var listname, screenname string
-	var listID, userid int64
-	flag.StringVar(&listname, "listname", "", "list name")
-	flag.Int64Var(&listID, "listid", 0, "list ID")
-	nortPtr := flag.Bool("nort", false, "not include retweets")
-
 	tLtypePtr := flag.String("get", "", "TLtype: user, home, mention, rtofme, list")
+	screennamePtr := flag.String("user", "", "twitter @ screenname")
+	useridPtr := flag.Int64("userid", 0, "integer user Id")
+	listnamePtr := flag.String("listname", "", "list name")
+	listIDPtr := flag.Int64("listid", 0, "list ID")
 	countPtr := flag.Int("count", 0, "tweet count. max=3191?")
 	eachPtr := flag.Int("each", 0, "req count for each loop max=200")
 	max_idPtr := flag.Int64("max_id", 0, "starting tweet id")
 	since_idPtr := flag.Int64("since_id", 0, "reverse start tweet id")
-
-	flag.StringVar(&screenname, "user", "", "twitter @ screenname")
-	flag.Int64Var(&userid, "userid", 0, "integer user Id")
-
 	reversePtr := flag.Bool("reverse", false, "reverse output. wait newest TL")
 	loopsPtr := flag.Int("loops", 0, "API get loop max")
 	waitPtr := flag.Int64("wait", 0, "wait second for next loop")
+	nortPtr := flag.Bool("nort", false, "not include retweets")
 	flag.Parse()
-	includeRTs := ! *nortPtr
-	eachcount := *eachPtr
-
+	var tLtype = *tLtypePtr
+	var screenname = *screennamePtr
+	var userid = *useridPtr
+	var listname = *listnamePtr
+	var listID = *listIDPtr
+	var count = *countPtr
+	var eachcount = *eachPtr
+	var max_id = *max_idPtr
+	var since_id = *since_idPtr
+	var reverseflag = *reversePtr
+	var max_loop = *loopsPtr
+	var waitsecond = *waitPtr
+	var includeRTs = ! *nortPtr
+	
 	if flag.NArg() > 0 {
 		fmt.Fprintf(os.Stderr, "positional argument no need [%s]\n", flag.Arg(0))
 		os.Exit(2)
 	}
 
 	var t tltype
-	switch *tLtypePtr {
+	switch tLtype {
 	case "user":    t = tluser
 	case "home":    t = tlhome
 	case "mention": t = tlmention
@@ -151,12 +135,14 @@ func main(){
 			t = tlhome
 		}
 	default:
-		fmt.Fprintf(os.Stderr, "invalid type -get=%s\n", *tLtypePtr)
+		fmt.Fprintf(os.Stderr, "invalid type -get=%s\n", tLtype)
 		os.Exit(2)
 	}
 	fmt.Fprintf(os.Stderr, "-get=%v\n", t)
 	
-	api = connectTwitterApi()
+	twapi.api = connectTwitterApi()
+	twapi.t = t
+
 	var uv=url.Values{}
 
 	if userid == 0 && screenname == "" {
@@ -174,7 +160,7 @@ func main(){
 		case tlhome: fallthrough
 		case tlmention: fallthrough
 		case tlrtofme:
-			fmt.Fprintf(os.Stderr, "%s TL for Auth user only.\n", *tLtypePtr)
+			fmt.Fprintf(os.Stderr, "%s TL for Auth user only.\n", tLtype)
 			os.Exit(2)
 		}
 	}
@@ -223,37 +209,36 @@ func main(){
 	for key, val := range uv {
 		fmt.Fprintln(os.Stderr, key, ":", val)
 	}
-	fmt.Fprintf(os.Stderr, "count=%d\n", *countPtr)
+	fmt.Fprintf(os.Stderr, "count=%d\n", count)
 	fmt.Fprintf(os.Stderr, "each=%d\n", eachcount)
-	fmt.Fprintf(os.Stderr, "loops=%d\n", *loopsPtr)
-	fmt.Fprintf(os.Stderr, "max_id=%d\n", *max_idPtr)
-	fmt.Fprintf(os.Stderr, "since_id=%d\n", *since_idPtr)
-	fmt.Fprintf(os.Stderr, "wait=%d\n", *waitPtr)
+	fmt.Fprintf(os.Stderr, "reverse=%v\n", reverseflag)
+	fmt.Fprintf(os.Stderr, "loops=%d\n", max_loop)
+	fmt.Fprintf(os.Stderr, "max_id=%d\n", max_id)
+	fmt.Fprintf(os.Stderr, "since_id=%d\n", since_id)
+	fmt.Fprintf(os.Stderr, "wait=%d\n", waitsecond)
 
-	var count = *countPtr
-	var waitsecond = *waitPtr
-	if *reversePtr {
-		if *max_idPtr != 0 {
+	if reverseflag {
+		if max_id != 0 {
 			fmt.Fprintf(os.Stderr, "max id ignored when reverse\n")
 		}
 		if waitsecond <= 0 {
 			waitsecond = 60
 			fmt.Fprintf(os.Stderr, "wait default=%d (reverse)\n", waitsecond)
 		}
-		getReverseTLs(t, uv, count, *loopsPtr, waitsecond, *since_idPtr)
+		getReverseTLs(uv, count, max_loop, waitsecond, since_id)
 	} else {
-		if *loopsPtr == 0 && count == 0 {
+		if max_loop == 0 && count == 0 {
 			count = 5
 			fmt.Fprintf(os.Stderr, "set forward default count=5\n")
 		}
-		if *max_idPtr > 0 && *max_idPtr <= *since_idPtr {
+		if max_id > 0 && max_id <= since_id {
 			fmt.Fprintf(os.Stderr, "sincd id ignored when max<=since\n")
 		}
 		if waitsecond <= 0 {
 			waitsecond = 10
 			fmt.Fprintf(os.Stderr, "wait default=%d (forward)\n", waitsecond)
 		}
-		getFowardTLs(t, uv, count, eachcount, *loopsPtr, waitsecond, *max_idPtr, *since_idPtr)
+		getFowardTLs(uv, count, eachcount, max_loop, waitsecond, max_id, since_id)
 	}
 	print_id()
 	os.Exit(exitcode)
@@ -262,7 +247,7 @@ func main(){
 func listIDCheck(userID int64, listid int64, listname string) (returnID int64) {
 	var uv=url.Values{}
 	uv.Set("count", "100")
-	lists, err := api.GetListsOwnedBy(userID, uv)
+	lists, err := twapi.api.GetListsOwnedBy(userID, uv)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(2)
@@ -302,7 +287,7 @@ func listIDCheck(userID int64, listid int64, listname string) (returnID int64) {
 	return 0
 }
 
-func getFowardTLs(t tltype, uv url.Values, count int, eachcount int, loops int, waitsecond int64, max int64, since int64) {
+func getFowardTLs(uv url.Values, count int, eachcount int, loops int, waitsecond int64, max int64, since int64) {
 	var tweets []anaconda.Tweet
 	var err error
 	var countlim bool = true
@@ -332,7 +317,7 @@ func getFowardTLs(t tltype, uv url.Values, count int, eachcount int, loops int, 
 	}
 	for i := 1; ; i++ {
 
-		tweets, err = getTL(t, uv)
+		tweets, err = twapi.getTL(uv)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			print_id()
@@ -347,7 +332,7 @@ func getFowardTLs(t tltype, uv url.Values, count int, eachcount int, loops int, 
 			break
 		}
 
-		firstid, lastid := printTL(tweets, count, forward)
+		firstid, lastid, nout := printTL(tweets, count, forward)
 		if next_since == 0 {
 			next_since = firstid
 		}
@@ -357,7 +342,7 @@ func getFowardTLs(t tltype, uv url.Values, count int, eachcount int, loops int, 
 			break
 		}
 		if countlim {
-			count -= c
+			count -= nout
 			if count <= 0 { break }
 		}
 		if loops > 0 && i >= loops {
@@ -370,7 +355,7 @@ func getFowardTLs(t tltype, uv url.Values, count int, eachcount int, loops int, 
 	return
 }
 
-func getReverseTLs(t tltype, uv url.Values, count int, loops int, wait int64, since int64) {
+func getReverseTLs(uv url.Values, count int, loops int, wait int64, since int64) {
 	var tweets []anaconda.Tweet
 	var err error
 	var zeror bool
@@ -386,7 +371,7 @@ func getReverseTLs(t tltype, uv url.Values, count int, loops int, wait int64, si
 	if sinceid <= 0 {
 		fmt.Fprintf(os.Stderr, "since=%d. get one tweet\n", sinceid)
 		uv.Set("count", "1")
-		tweets, err = getTL(t, uv)
+		tweets, err = twapi.getTL(uv)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			print_id()
@@ -398,7 +383,7 @@ func getReverseTLs(t tltype, uv url.Values, count int, loops int, wait int64, si
 			os.Exit(2)
 		}
 
-		_, lastid := printTL(tweets[0:1], 0, reverse)
+		_, lastid, _ := printTL(tweets[0:1], 0, reverse)
 		next_max = lastid
 		next_since = lastid
 		sinceid = lastid
@@ -407,7 +392,7 @@ func getReverseTLs(t tltype, uv url.Values, count int, loops int, wait int64, si
 		fmt.Fprintf(os.Stderr, "since=%d. start from this record.\n", sinceid)
 	}
 	for i:=1; ; i+=1 {
-		tweets, zeror = getTLsince(t, uv, sinceid)
+		tweets, zeror = getTLsince(uv, sinceid)
 
 		c := len(tweets)
 		if c > 0 {
@@ -422,14 +407,14 @@ func getReverseTLs(t tltype, uv url.Values, count int, loops int, wait int64, si
 				fmt.Fprintf(os.Stderr, "Gap exists\n")
 			}
 			if c > 0 {
-				firstid, lastid := printTL(tweets, 0, reverse)
+				firstid, lastid, nout := printTL(tweets, 0, reverse)
 				if next_max == 0 {
 					next_max = firstid
 				}
 				next_since = lastid
 				sinceid = lastid
 				if countlim {
-					count -= c
+					count -= nout
 					if count <= 0 { break }
 				}
 			}
@@ -457,7 +442,7 @@ func getReverseTLs(t tltype, uv url.Values, count int, loops int, wait int64, si
 	return
 }
 
-func getTLsince(t tltype, uv url.Values, since int64) (tweets []anaconda.Tweet, zeror bool) {
+func getTLsince(uv url.Values, since int64) (tweets []anaconda.Tweet, zeror bool) {
 	tweets = []anaconda.Tweet{}
 	zeror = false
 	var tws []anaconda.Tweet
@@ -466,7 +451,7 @@ func getTLsince(t tltype, uv url.Values, since int64) (tweets []anaconda.Tweet, 
 	uv.Set("since_id", strconv.FormatInt(since - 1, 10))
 	for i := 0; ; i++ {
 
-		tws, err = getTL(t, uv)
+		tws, err = twapi.getTL(uv)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			print_id()
@@ -494,7 +479,36 @@ func getTLsince(t tltype, uv url.Values, since int64) (tweets []anaconda.Tweet, 
 	return tweets, zeror
 }
 
-func printTL(tweets []anaconda.Tweet, count int, revs revtype) (firstid int64, lastid int64) {
+func sleep(second int64) {
+	fmt.Fprintf(os.Stderr, "%s Sleep: %d", time.Now().Format("15:04:05"), second)
+	start := time.Now()
+	startunix := start.Unix()
+	lastunix := startunix + int64(second)
+	
+	for second > 0 {
+		slp := second
+		if slp > sleepdot {
+			slp = sleepdot
+		}
+		
+		time.Sleep(time.Duration(slp) * time.Second)
+		fmt.Fprintf(os.Stderr, ".")
+
+		now := time.Now()
+		nowunix := now.Unix()
+		second = lastunix - nowunix
+		if second < -10 {
+			fmt.Fprintf(os.Stderr, "oversleep %s\n", now.Format("15:04:05"))
+			print_id()
+			os.Exit(0)
+		}
+		if second <= 0 {
+			break
+		}
+	}
+}
+
+func printTL(tweets []anaconda.Tweet, count int, revs revtype) (firstid int64, lastid int64, nout int) {
 	firstid = 0
 	lastid = 0
 	imax := len(tweets)
@@ -504,9 +518,9 @@ func printTL(tweets []anaconda.Tweet, count int, revs revtype) (firstid int64, l
 		is = imax - 1
 		ip = -1
 	}
-	seq := 0
+	var done bool
+	nout = 0
 	for i := is; 0 <= i && i < imax; i += ip {
-		seq++
 		tweet := tweets[i]
 		id := tweet.Id
 		fmt.Fprintln(os.Stderr, "Id:", id)
@@ -525,30 +539,35 @@ func printTL(tweets []anaconda.Tweet, count int, revs revtype) (firstid int64, l
 		}
 		if tweet.RetweetedStatus != nil {
 			twtype = "RT"
-			printTweet(id, *tweet.RetweetedStatus, twtype)
+			done = printTweet(id, *tweet.RetweetedStatus, twtype)
 		} else {
-			printTweet(id, tweet, twtype)
+			done = printTweet(id, tweet, twtype)
 		}
-		lastid = id
+		if done {
+			nout++
+		}
 
-		if count > 0 && seq >= count {
+		lastid = id
+		
+		if count > 0 && nout >= count {
 			break
 		}
 	}
-	return firstid, lastid
+	return firstid, lastid, nout
 }
 
-func printTweet(id int64, tweet anaconda.Tweet, twtype string) {
+func printTweet(id int64, tweet anaconda.Tweet, twtype string) (bool) {
 	screen := tweet.User.ScreenName
 	fulltext := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(tweet.FullText, "\n", `\n`), "\r", `\r`), "\"", `\"`)
 	fulltext = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(fulltext, `&amp;`, `&`), `&lt;`, `<`), `&gt;`, `>`)
 	fmt.Printf("%d\t@%s\t%s\t\"%s\"\n", id, screen, twtype, fulltext)
+	return true
 }
 
 func name2id(screen_name string) (id int64, err error) {
 	var uv=url.Values{}
 	uv.Set("skip_status", "true") //データ減少
-	users, err := api.GetUsersLookup(screen_name, uv)
+	users, err := twapi.api.GetUsersLookup(screen_name, uv)
 	if err != nil {
 		return 0, err
 	}
