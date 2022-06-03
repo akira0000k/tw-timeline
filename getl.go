@@ -19,12 +19,22 @@ var exitcode int = 0
 var next_max int64 = 0
 var next_since int64 = 0
 func print_id() {
+	if uniqid != nil {
+		err := uniqid.write()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+		}
+	}
 	fmt.Fprintf(os.Stderr, "--------\n-since_id=%d\n", next_since)
 	fmt.Fprintf(os.Stderr,   "-max_id=%d\n", next_max)
 }
 
-const onetimedefault = 20
-const onetimemax = 200
+const t_onetimedefault = 20
+const t_onetimemax = 200
+const s_onetimedefault = 15
+const s_onetimemax = 100
+var onetimedefault = t_onetimedefault
+var onetimemax = t_onetimemax
 const sleepdot = 5
 
 // TL type "enum"
@@ -36,6 +46,7 @@ const (
 	tlmention
 	tlrtofme
 	tllist
+	tlsearch
 )
 
 type revtype bool
@@ -44,9 +55,44 @@ const (
 	forward revtype = false
 )
 
+
+type idCheck map[int64]bool
+var uniqid idCheck = nil
+
+func (c idCheck) checkID(id int64) (exist bool) {
+	if c[id] {
+		return true
+	} else {
+		c[id] = true
+		return false
+	}
+}
+
+func (c idCheck) write() (err error) {
+	bytes, _ := json.Marshal(c)
+	err = ioutil.WriteFile("tempids.json", bytes, os.FileMode(0600))
+	return err
+}
+
+func (c *idCheck) read() (err error) {
+	*c = idCheck{}
+	raw, err := ioutil.ReadFile("tempids.json")
+	if err != nil {
+		return err
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	json.Unmarshal(raw, c)
+	return nil
+}
+
+
 type twSearchApi struct {
 	api *anaconda.TwitterApi
 	t  tltype
+	sr anaconda.SearchResponse
+	sec int
 }
 
 var twapi twSearchApi
@@ -66,10 +112,23 @@ func (ta *twSearchApi) getTL(uv url.Values) (tweets []anaconda.Tweet, err error)
 		listid64, _ := strconv.ParseInt(uv.Get("list_id"), 10, 64)
 		includeRT, _ := strconv.ParseBool(uv.Get("include_rts"))
 		tweets, err = api.GetListTweets(listid64, includeRT, uv)
+	case tlsearch:
+		if ta.sec == 0 {
+			query := uv.Get("query")
+			ta.sr, err = api.GetSearch(query, uv)
+		} else {
+			ta.sr, err = ta.sr.GetNext(ta.api)
+		}
+		ta.sec++
+		tweets = ta.sr.Statuses
 	}
 	
 	fmt.Fprintf(os.Stderr, "%s get len: %d\n", time.Now().Format("15:04:05"), len(tweets))
 	return tweets, err
+}
+
+func (ta *twSearchApi) rewindQuery() {
+	ta.sec = 0
 }
 
 // func (a TwitterApi) GetListTweets(listID int64, includeRTs bool, v url.Values) (tweets []Tweet, err error) {
@@ -84,17 +143,18 @@ func (ta *twSearchApi) getTL(uv url.Values) (tweets []anaconda.Tweet, err error)
 
 func main(){
 	var err error
-	tLtypePtr := flag.String("get", "", "TLtype: user, home, mention, rtofme, list")
+	tLtypePtr := flag.String("get", "", "TLtype: user, home, mention, rtofme, list, search")
 	screennamePtr := flag.String("user", "", "twitter @ screenname")
 	useridPtr := flag.Int64("userid", 0, "integer user Id")
 	listnamePtr := flag.String("listname", "", "list name")
 	listIDPtr := flag.Int64("listid", 0, "list ID")
-	countPtr := flag.Int("count", 0, "tweet count. max=3191?")
+	queryPtr := flag.String("query", "", "Query String")
+	countPtr := flag.Int("count", 0, "tweet count. max=800 ?")
 	eachPtr := flag.Int("each", 0, "req count for each loop max=200")
 	max_idPtr := flag.Int64("max_id", 0, "starting tweet id")
 	since_idPtr := flag.Int64("since_id", 0, "reverse start tweet id")
 	reversePtr := flag.Bool("reverse", false, "reverse output. wait newest TL")
-	loopsPtr := flag.Int("loops", 0, "API get loop max")
+	loopsPtr := flag.Int("loops", 0, "get loop max")
 	waitPtr := flag.Int64("wait", 0, "wait second for next loop")
 	nortPtr := flag.Bool("nort", false, "not include retweets")
 	flag.Parse()
@@ -103,6 +163,7 @@ func main(){
 	var userid = *useridPtr
 	var listname = *listnamePtr
 	var listID = *listIDPtr
+	var queryString = *queryPtr
 	var count = *countPtr
 	var eachcount = *eachPtr
 	var max_id = *max_idPtr
@@ -124,21 +185,30 @@ func main(){
 	case "mention": t = tlmention
 	case "rtofme":  t = tlrtofme
 	case "list":    t = tllist
+	case "search":  t = tlsearch
 	case "":
 		if listID > 0 || listname != "" {
 			t = tllist
+			tLtype = "list"
 			fmt.Fprintln(os.Stderr, "assume -get=list")
 		} else if userid > 0 || screenname != "" {
 			t = tluser
+			tLtype = "user"
 			fmt.Fprintln(os.Stderr, "assume -get=user")
+		} else if queryString != "" {
+			t = tlsearch
+			tLtype = "search"
+			fmt.Fprintln(os.Stderr, "assume -get=search")
 		} else {
 			t = tlhome
+			tLtype = "home"
+			fmt.Fprintln(os.Stderr, "assume -get=home")
 		}
 	default:
 		fmt.Fprintf(os.Stderr, "invalid type -get=%s\n", tLtype)
 		os.Exit(2)
 	}
-	fmt.Fprintf(os.Stderr, "-get=%v\n", t)
+	fmt.Fprintf(os.Stderr, "-get=%s\n", tLtype)
 	
 	twapi.api = connectTwitterApi()
 	twapi.t = t
@@ -203,8 +273,28 @@ func main(){
 			os.Exit(2)
 		}
 	}
+
+	switch t {
+	case tlsearch:
+		if queryString == "" {
+			fmt.Fprintln(os.Stderr, "-query not specified")
+			os.Exit(2)
+		}
+		onetimedefault = s_onetimedefault
+		onetimemax = s_onetimemax
+		err = uniqid.read()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+		}
+		uv.Set("query", queryString)
+	default:
+		if queryString != "" {
+			fmt.Fprintf(os.Stderr, "-get=%s no need -query\n", tLtype)
+			os.Exit(2)
+		}
+		uv.Set("include_rts", strconv.FormatBool(includeRTs))  //リツイートは含まない。件数は減る。
+	}		
 	
-	uv.Set("include_rts", strconv.FormatBool(includeRTs))  //リツイートは含まない。件数は減る。
 
 	for key, val := range uv {
 		fmt.Fprintln(os.Stderr, key, ":", val)
@@ -449,6 +539,7 @@ func getTLsince(uv url.Values, since int64) (tweets []anaconda.Tweet, zeror bool
 	var err error
 	uv.Set("count", strconv.Itoa(onetimemax))
 	uv.Set("since_id", strconv.FormatInt(since - 1, 10))
+	twapi.rewindQuery()
 	for i := 0; ; i++ {
 
 		tws, err = twapi.getTL(uv)
@@ -518,31 +609,17 @@ func printTL(tweets []anaconda.Tweet, count int, revs revtype) (firstid int64, l
 		is = imax - 1
 		ip = -1
 	}
-	var done bool
 	nout = 0
 	for i := is; 0 <= i && i < imax; i += ip {
 		tweet := tweets[i]
 		id := tweet.Id
-		fmt.Fprintln(os.Stderr, "Id:", id)
 
 		if i == is {
 			firstid = id
 			lastid = id
 		}
 		//  RT > Reply > Mention > tweet
-		twtype := "tw"
-		if tweet.InReplyToUserID != 0 {
-			twtype = "Mn"
-		}
-		if tweet.InReplyToStatusID != 0 {
-			twtype = "Re"
-		}
-		if tweet.RetweetedStatus != nil {
-			twtype = "RT"
-			done = printTweet(id, *tweet.RetweetedStatus, twtype)
-		} else {
-			done = printTweet(id, tweet, twtype)
-		}
+		done := printTweet(&tweet, tweet.RetweetedStatus)
 		if done {
 			nout++
 		}
@@ -556,12 +633,50 @@ func printTL(tweets []anaconda.Tweet, count int, revs revtype) (firstid int64, l
 	return firstid, lastid, nout
 }
 
-func printTweet(id int64, tweet anaconda.Tweet, twtype string) (bool) {
-	screen := tweet.User.ScreenName
-	fulltext := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(tweet.FullText, "\n", `\n`), "\r", `\r`), "\"", `\"`)
-	fulltext = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(fulltext, `&amp;`, `&`), `&lt;`, `<`), `&gt;`, `>`)
-	fmt.Printf("%d\t@%s\t%s\t\"%s\"\n", id, screen, twtype, fulltext)
-	return true
+func printTweet(tweet1 *anaconda.Tweet, tweet2 *anaconda.Tweet) (bool) {
+	tweetid := tweet1.Id
+	tweetuser := tweet1.User.ScreenName
+
+	twtype1 := "or"
+	tweet := tweet1
+	if tweet2 != nil {
+		twtype1 = "RT"
+		tweet = tweet2
+	}
+	origiid := tweet.Id
+	origiuser := tweet.User.ScreenName
+	
+	firstp := true
+	idst := "*Id:"
+	if uniqid != nil {
+		if uniqid.checkID(origiid) {
+			firstp = false
+			idst = "_id:"
+		}
+	}
+
+	if tweet2 == nil {
+		fmt.Fprintln(os.Stderr, idst, tweetid)
+	} else {
+		fmt.Fprintln(os.Stderr, idst, tweetid, origiid)
+	}
+
+	if firstp {
+		twtype2 := "tw"
+		if tweet.InReplyToUserID != 0 {
+			twtype2 = "Mn"
+		}
+		if tweet.InReplyToStatusID != 0 {
+			twtype2 = "Re"
+		}
+
+		fulltext := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(tweet.FullText, "\n", `\n`), "\r", `\r`), "\"", `\"`)
+		fulltext = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(fulltext, `&amp;`, `&`), `&lt;`, `<`), `&gt;`, `>`)
+		fmt.Printf("%d\t@%s\t%s\t%d\t@%s\t%s\t\"%s\"\n",
+			tweetid, tweetuser, twtype1,
+			origiid, origiuser, twtype2, fulltext)
+	}
+	return firstp
 }
 
 func name2id(screen_name string) (id int64, err error) {
@@ -695,4 +810,21 @@ type TwitterAccount struct {
 // 	Verified                       bool     `json:"verified"`
 // 	WithheldInCountries            []string `json:"withheld_in_countries"`
 // 	WithheldScope                  string   `json:"withheld_scope"`
+//}
+
+//type SearchMetadata struct {
+// 	CompletedIn   float32 `json:"completed_in"`
+// 	MaxId         int64   `json:"max_id"`
+// 	MaxIdString   string  `json:"max_id_str"`
+// 	Query         string  `json:"query"`
+// 	RefreshUrl    string  `json:"refresh_url"`
+// 	Count         int     `json:"count"`
+// 	SinceId       int64   `json:"since_id"`
+// 	SinceIdString string  `json:"since_id_str"`
+// 	NextResults   string  `json:"next_results"`
+//}
+// 
+//type SearchResponse struct {
+// 	Statuses []Tweet        `json:"statuses"`
+// 	Metadata SearchMetadata `json:"search_metadata"`
 //}

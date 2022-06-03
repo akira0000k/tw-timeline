@@ -5,7 +5,7 @@ Get twitter timeline command
 $ ./getl -help
 Usage of ./getl:
 -get string
-	TLtype: user, home, mention, rtofme, list
+	TLtype: user, home, mention, rtofme, list, search
 
 -user string
 	twitter @ screenname
@@ -17,6 +17,8 @@ Usage of ./getl:
 -listid int
 	list ID
 
+-query searchstring
+
 -reverse
 	reverse output. wait newest TL
 -max_id int
@@ -27,11 +29,11 @@ Usage of ./getl:
 -nort
 	not include retweets
 -count int
-	tweet count. max=800?
+	tweet count. max=800 ?
 -each int
 	req count for each loop max=200
 -loops int
-	API get loop max
+	get loop max
 -wait int
 	wait second for next loop
 ~~~
@@ -48,6 +50,8 @@ Usage of ./getl:
     [-get=user] -user=screenname / -userid=9999999
 ### リストTL
     [-get=list] -listname=リスト名 / -listid=99999999  -user=screenname / -userid=9999999
+### 検索
+	[-get=search] -query=検索文字列
 
 ### 取得方向
     -reverse  (逆。最新待ち受け取得)  順方向は過去へ
