@@ -10,6 +10,8 @@ import (
 	"io/ioutil"
 	"os"
 	"os/user"
+	"os/signal"
+	"syscall"
 	"net/url"
 
 	"github.com/ChimeraCoder/anaconda"
@@ -55,6 +57,11 @@ const (
 	forward revtype = false
 )
 
+const (
+	rsrecent string = "recent"
+	rsmixed string = "mixed"
+	rspopular string = "popular"
+)
 
 type idCheck map[int64]bool
 var uniqid idCheck = nil
@@ -149,6 +156,7 @@ func main(){
 	listnamePtr := flag.String("listname", "", "list name")
 	listIDPtr := flag.Int64("listid", 0, "list ID")
 	queryPtr := flag.String("query", "", "Query String")
+	resulttypePtr := flag.String("restype", "", "result type: recent/mixed(default)/popular")
 	countPtr := flag.Int("count", 0, "tweet count. max=800 ?")
 	eachPtr := flag.Int("each", 0, "req count for each loop max=200")
 	max_idPtr := flag.Int64("max_id", 0, "starting tweet id")
@@ -164,6 +172,7 @@ func main(){
 	var listname = *listnamePtr
 	var listID = *listIDPtr
 	var queryString = *queryPtr
+	var resulttype = *resulttypePtr
 	var count = *countPtr
 	var eachcount = *eachPtr
 	var max_id = *max_idPtr
@@ -280,6 +289,17 @@ func main(){
 			fmt.Fprintln(os.Stderr, "-query not specified")
 			os.Exit(2)
 		}
+		switch {
+		case strings.HasPrefix(rsrecent, resulttype):
+			resulttype = rsrecent
+		case strings.HasPrefix(rsmixed, resulttype):
+			resulttype = rsmixed
+		case strings.HasPrefix(rspopular, resulttype):
+			resulttype = rspopular
+		default:
+			fmt.Fprintf(os.Stderr, "invalid -restype=%s\n", resulttype)
+			os.Exit(2)
+		}
 		onetimedefault = s_onetimedefault
 		onetimemax = s_onetimemax
 		err = uniqid.read()
@@ -287,9 +307,14 @@ func main(){
 			fmt.Fprintln(os.Stderr, err.Error())
 		}
 		uv.Set("query", queryString)
+		uv.Set("result_type", resulttype)
 	default:
 		if queryString != "" {
 			fmt.Fprintf(os.Stderr, "-get=%s no need -query\n", tLtype)
+			os.Exit(2)
+		}
+		if resulttype != "" {
+			fmt.Fprintf(os.Stderr, "-get=%s no need -restype=%s\n", tLtype, resulttype)
 			os.Exit(2)
 		}
 		uv.Set("include_rts", strconv.FormatBool(includeRTs))  //リツイートは含まない。件数は減る。
@@ -307,6 +332,8 @@ func main(){
 	fmt.Fprintf(os.Stderr, "since_id=%d\n", since_id)
 	fmt.Fprintf(os.Stderr, "wait=%d\n", waitsecond)
 
+	sgchn.sighandle()
+	
 	if reverseflag {
 		if max_id != 0 {
 			fmt.Fprintf(os.Stderr, "max id ignored when reverse\n")
@@ -570,6 +597,34 @@ func getTLsince(uv url.Values, since int64) (tweets []anaconda.Tweet, zeror bool
 	return tweets, zeror
 }
 
+type sigrecv_chan chan os.Signal
+var sgchn sigrecv_chan
+func (s *sigrecv_chan) sighandle() {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs,
+		syscall.SIGINT,
+		syscall.SIGTERM)
+
+	done := make(chan os.Signal, 1)
+
+	go func() {
+		sig := <-sigs
+		done <- sig
+	}()
+	*s = done
+}
+
+func (s sigrecv_chan) checksignal() (bool) {
+	select {
+	case sig := <-s:
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, sig)
+		return true
+	default:
+	}
+	return false
+}
+
 func sleep(second int64) {
 	fmt.Fprintf(os.Stderr, "%s Sleep: %d", time.Now().Format("15:04:05"), second)
 	start := time.Now()
@@ -582,7 +637,16 @@ func sleep(second int64) {
 			slp = sleepdot
 		}
 		
-		time.Sleep(time.Duration(slp) * time.Second)
+		//time.Sleep(time.Duration(slp) * time.Second)
+		for i := int64(0); i <= slp; i++ {
+			if sgchn.checksignal() {
+				print_id()
+				os.Exit(3)
+			}
+			if i < slp {
+				time.Sleep(time.Second)
+			}
+		}
 		fmt.Fprintf(os.Stderr, ".")
 
 		now := time.Now()

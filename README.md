@@ -18,6 +18,8 @@ Usage of ./getl:
 	list ID
 
 -query searchstring
+-restype string
+	result type: recent/mixed(default)/popular
 
 -reverse
 	reverse output. wait newest TL
@@ -51,7 +53,7 @@ Usage of ./getl:
 ### リストTL
     [-get=list] -listname=リスト名 / -listid=99999999  -user=screenname / -userid=9999999
 ### 検索
-	[-get=search] -query=検索文字列
+	[-get=search] -query=検索文字列 [-restype=recent/mixed/popular]
 
 ### 取得方向
     -reverse  (逆。最新待ち受け取得)  順方向は過去へ
@@ -70,4 +72,4 @@ Usage of ./getl:
     -each=一回の取得件数　 　(順のみ、デフォルト20件, 最大200件)
     -loops=内部繰り返し数　　(-countで全体件数を制御するか、-eachと-loops で制御してもよい)
     -wait=秒             　(ループ間隔)  デフォルト 順10 逆60
-    -nort   　　　　　　　　(出力にRTを含めない)　　一回に取得できる件数が大幅に減るかもしれないので -each=200 を指定するとよい。
+    -nort   　　　　　　　　(出力にRTを含めない、検索は除く)　　一回に取得できる件数が大幅に減るかもしれないので -each=200 を指定するとよい。
