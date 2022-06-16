@@ -1,5 +1,5 @@
 # tw-timeline
-Get twitter timeline command
+Get twitter timeline command - Twitter API v1.1 with anaconda library
 
 ~~~
 $ ./getl -help
