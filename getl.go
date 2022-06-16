@@ -344,12 +344,13 @@ func main(){
 		}
 		getReverseTLs(uv, count, max_loop, waitsecond, since_id)
 	} else {
-		if max_loop == 0 && count == 0 {
-			count = 5
-			fmt.Fprintf(os.Stderr, "set forward default count=5\n")
-		}
 		if max_id > 0 && max_id <= since_id {
 			fmt.Fprintf(os.Stderr, "sincd id ignored when max<=since\n")
+			since_id = 0
+		}
+		if max_loop == 0 && since_id == 0 && count == 0 {
+			count = 5
+			fmt.Fprintf(os.Stderr, "set forward default count=5\n")
 		}
 		if waitsecond <= 0 {
 			waitsecond = 10
@@ -766,7 +767,7 @@ func connectTwitterApi() *anaconda.TwitterApi {
 
 	if error != nil {
 		fmt.Fprintln(os.Stderr, error.Error())
-		return nil
+		os.Exit(2)
 	}
 
 	var twitterAccount TwitterAccount
